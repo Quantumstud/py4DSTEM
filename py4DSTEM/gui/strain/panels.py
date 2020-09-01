@@ -3,20 +3,21 @@ from PyQt5 import QtCore, QtWidgets, QtGui
 import pyqtgraph as pg
 from ..dialogs import SectionLabel
 import numpy as np
-from ..utils import pg_point_roi
-from ...process.braggdiskdetection import get_average_probe_from_ROI, get_probe_kernel, get_probe_kernel_subtrgaussian
-from ...process.braggdiskdetection import find_Bragg_disks_selected, find_Bragg_disks
+from ..gui_utils import pg_point_roi
+from ...process.diskdetection import get_probe_from_4Dscan_ROI, get_probe_kernel, get_probe_kernel_subtrgaussian
+from ...process.diskdetection import find_Bragg_disks_selected, find_Bragg_disks
+from ...process.diskdetection import get_bragg_vector_map
 from ...process.fit import fit_2D, plane, parabola
 from ...process.calibration import get_diffraction_shifts, shift_braggpeaks
-from ...process.braggdiskdetection import get_bragg_vector_map
 from skimage.transform import radon
 from ...process.latticevectors import get_radon_scores, get_lattice_directions_from_scores, get_lattice_vector_lengths, generate_lattice
 from scipy.ndimage.filters import gaussian_filter
-from ...file.datastructure import PointList 
+from ...file.datastructure import PointList
 from .cmaptopg import cmapToColormap
 from matplotlib.cm import get_cmap
 from ...process.latticevectors import get_strain_from_reference_region, fit_lattice_vectors_all_DPs
-from ...file.io import save, append, is_py4DSTEM_file, read
+from ...file.io import read
+from ...file.io.native import save, append, is_py4DSTEM_file
 from ...file.datastructure import DiffractionSlice, RealSlice
 from .ImageViewMasked import ImageViewAlpha
 
@@ -207,15 +208,15 @@ class VacuumDCTab(QtWidgets.QWidget):
 			self.lineEdit_LoadFile.setText(fname)
 			# check the load mode and load file:
 			if self.loadRadioAuto.isChecked():
-				self.main_window.strain_window.vac_datacube = read(fname)
+				self.main_window.strain_window.vac_datacube,_ = read(fname)
 				if binning > 1:
 					self.main_window.strain_window.vac_datacube.bin_data_diffraction(binning)
 			elif self.loadRadioMMAP.isChecked():
-				self.main_window.strain_window.vac_datacube = read(fname, load='dmmmap')
+				self.main_window.strain_window.vac_datacube,_ = read(fname, load='dmmmap')
 				if binning > 1:
 					self.main_window.strain_window.vac_datacube.bin_data_mmap(binning)
 			elif self.loadRadioGatan.isChecked():
-				self.main_window.strain_window.vac_datacube = read(fname, load='gatan_bin')
+				self.main_window.strain_window.vac_datacube,_ = read(fname, load='gatan_bin')
 				if binning > 1:
 					self.main_window.strain_window.vac_datacube.bin_data_mmap(binning)
 
@@ -348,7 +349,7 @@ class ProkeKernelSettings(QtWidgets.QGroupBox):
 		DP_mask = np.reshape(DP_mask,(dc.Q_Nx,dc.Q_Ny))
 
 		# generate the prpbe kernel and update views
-		self.probe = get_average_probe_from_ROI(dc,RS_mask,mask_threshold=mask_threshold,\
+		self.probe = get_probe_from_4Dscan_ROI(dc,RS_mask,mask_threshold=mask_threshold,\
 			mask_expansion=mask_expansion,mask_opening=mask_opening,verbose=True, DP_mask=DP_mask)
 
 		# get an alias to the probe kernel display pane
@@ -1412,11 +1413,11 @@ class StrainMapTab(QtWidgets.QWidget):
 			try:
 				# file was chosen
 				if is_py4DSTEM_file(f[0]):
-					append([sw.ProbeKernelDS,sw.braggdisks,sw.braggdisks_corrected,
-						sw.BVMDS,sw.lattice_vectors,sw.uv_map, sw.strain_map],f[0])
+					append(f[0],[sw.ProbeKernelDS,sw.braggdisks,sw.braggdisks_corrected,
+						sw.BVMDS,sw.lattice_vectors,sw.uv_map, sw.strain_map])
 				else:
-					save([sw.ProbeKernelDS,sw.braggdisks,sw.braggdisks_corrected,
-						sw.BVMDS,sw.lattice_vectors,sw.uv_map, sw.strain_map],f[0])
+					save(f[0],[sw.ProbeKernelDS,sw.braggdisks,sw.braggdisks_corrected,
+						sw.BVMDS,sw.lattice_vectors,sw.uv_map, sw.strain_map])
 			except Exception as exc:
 				print('Failed to save...')
 				print(format(exc))
@@ -1436,11 +1437,11 @@ class StrainMapTab(QtWidgets.QWidget):
 			try:
 				# file was chosen
 				if is_py4DSTEM_file(f[0]):
-					append([self.main_window.datacube,sw.ProbeKernelDS,sw.braggdisks,sw.braggdisks_corrected,
-						sw.BVMDS,sw.lattice_vectors,sw.uv_map, sw.strain_map],f[0])
+					append(f[0],[self.main_window.datacube,sw.ProbeKernelDS,sw.braggdisks,sw.braggdisks_corrected,
+						sw.BVMDS,sw.lattice_vectors,sw.uv_map, sw.strain_map])
 				else:
-					save([self.main_window.datacube,sw.ProbeKernelDS,sw.braggdisks,sw.braggdisks_corrected,
-						sw.BVMDS,sw.lattice_vectors,sw.uv_map, sw.strain_map],f[0])
+					save(f[0],[self.main_window.datacube,sw.ProbeKernelDS,sw.braggdisks,sw.braggdisks_corrected,
+						sw.BVMDS,sw.lattice_vectors,sw.uv_map, sw.strain_map])
 			except Exception as exc:
 				print('Failed to save...')
 				print(format(exc))

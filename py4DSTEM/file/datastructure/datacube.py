@@ -13,14 +13,14 @@ import h5py
 import numpy as np
 from .dataobject import DataObject
 from ...process import preprocess
-from ...process import virtualimage
+from ...process import virtualimage_viewer as virtualimage
 from ...process.utils import tqdmnd, bin2D
 
 class DataCube(DataObject):
 
     def __init__(self, data, **kwargs):
         """
-        Instantiate a DataCube object. Set the data, scan dimensions, and metadata.
+        Instantiate a DataCube object. Set the data and scan dimensions.
         """
         # Initialize DataObject
         DataObject.__init__(self, **kwargs)

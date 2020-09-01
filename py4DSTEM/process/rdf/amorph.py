@@ -8,7 +8,8 @@ from py4DSTEM.process.utils.ellipticalCoords import *
 import matplotlib
 from tqdm import tqdm
 
-matplotlib.rcParams["figure.dpi"] = 100
+# this fixes figure sizes on HiDPI screens
+matplotlib.rcParams["figure.dpi"] = 200
 plt.ion()
 
 
@@ -25,19 +26,21 @@ def fit_stack(datacube, init_coefs, mask=None):
     """
     coefs_array = np.zeros([i for i in datacube.data.shape[0:2]] + [len(init_coefs)])
     for i in tqdm(range(datacube.R_Nx)):
-        for j in range(datacube.R_Ny):
-            if len(mask.shape)==2:
+        for j in tqdm(range(datacube.R_Ny)):
+            if len(mask.shape) == 2:
                 mask_current = mask
-            elif len(mask.shape==4):
-                mask_current = mask[i,j,:,:]
+            elif len(mask.shape) == 4:
+                mask_current = mask[i, j, :, :]
 
-            coefs = fit_double_sided_gaussian(datacube[i,j,:,:], init_coefs, mask=mask_current)
+            coefs = fit_double_sided_gaussian(
+                datacube.data[i, j, :, :], init_coefs, mask=mask_current
+            )
             coefs_array[i, j] = coefs
 
     return coefs_array
 
 
-def calculate_coef_strain(coef_cube, A_ref=None, B_ref=None, C_ref=None):
+def calculate_coef_strain(coef_cube, r_ref):
     """
     This function will calculate the strains from a 3D matrix output by fit_stack
 
@@ -50,51 +53,75 @@ def calculate_coef_strain(coef_cube, A_ref=None, B_ref=None, C_ref=None):
         c_bkgd      a constant offset
         R           center of the Janus gaussian
         x0,y0       the origin
-        A,B,C       Ax^2 + Bxy + Cy^2 = 1
+        B,C         1x^2 + Bxy + Cy^2 = 1
 
     Accepts:
         coef_cube   - output from fit_stack
-        A_ref       - reference radius ~0 strain (coef[10]). Default is none, and then will use median value
-        B_ref       - reference B value (coef[8]), from perhaps mean image
-        C_ref       - reference C value (coef[9]), from perhaps mean image
+        r_ref       - a reference 0 strain radius - needed because we fit r as well as B and C
     Returns:
-        exx         - strain in the major axis direction
-        eyy         - strain in the minor axis direction
+        exx         - strain in the x axis direction in image coordinates
+        eyy         - strain in the y axis direction in image coordinates
         exy         - shear
 
     """
-    if A_ref is None:
-        A_ref = 1
-    if C_ref is None:
-        C_ref = 1
-    if B_ref is None:
-        B_ref = 0
-    A = coef_cube[:, :, 10]
-    B = coef_cube[:, :, 11]
-    C = coef_cube[:, :, 12]
+    R = coef_cube[:, :, 6]
+    r_ratio = (
+        R / r_ref
+    )  # this is a correction factor for what defines 0 strain, and must be applied to A, B and C. This has been found _experimentally_! TODO have someone else read this
 
-    exx = 1 / 2 * (A - A_ref)
-    eyy = 1 / 2 * (C - C_ref)  # TODO - make sure this is ok to do
-    exy = 1 / 2 * (B - B_ref)  # TODO - make sure this is ok to do
+    A = 1 / r_ratio ** 2
+    B = coef_cube[:, :, 9] / r_ratio ** 2
+    C = coef_cube[:, :, 10] / r_ratio ** 2
+
+    exx, eyy, exy = np.empty_like(A), np.empty_like(C), np.empty_like(B)
+
+    for i in range(A.shape[0]):
+        for j in range(A.shape[1]):
+            m_ellipse = np.asarray([[A[i, j], B[i, j] / 2], [B[i, j] / 2, C[i, j]]])
+            e_vals, e_vecs = np.linalg.eig(m_ellipse)
+            ang = np.arctan2(e_vecs[1, 0], e_vecs[0, 0])
+            rot_matrix = np.asarray(
+                [[np.cos(ang), -np.sin(ang)], [np.sin(ang), np.cos(ang)]]
+            )
+            transformation_matrix = np.diag(np.sqrt(e_vals))
+            transformation_matrix = rot_matrix @ transformation_matrix @ rot_matrix.T
+
+            exx[i, j] = transformation_matrix[0, 0] - 1
+            eyy[i, j] = transformation_matrix[1, 1] - 1
+            exy[i, j] = 0.5 * (
+                transformation_matrix[0, 1] + transformation_matrix[1, 0]
+            )
 
     return exx, eyy, exy
 
 
-def plot_strains(strains, cmap="RdBu_r", vmin=None, vmax=None):
+def plot_strains(strains, cmap="RdBu_r", vmin=None, vmax=None, mask=None):
     """
     This function will plot strains with a unified color scale.
 
     Accepts:
         strains             - a collection of 3 arrays in the format (exx, eyy, exy)
         cmap, vmin, vmax    - imshow parameters
+        mask                - real space mask of values not to show (black)
     """
+    cmap = matplotlib.cm.get_cmap(cmap)
     if vmin is None:
         vmin = np.min(strains)
     if vmax is None:
         vmax = np.max(strains)
+    if mask is None:
+        mask = np.ones_like(strains[0])
+    else:
+        cmap.set_under("black")
+        cmap.set_over("black")
+        cmap.set_bad("black")
 
-    plt.figure(88, figsize=(9, 5.8))
-    plt.clf()
+    mask = mask.astype(bool)
+
+    for i in strains:
+        i[mask] = np.nan
+
+    plt.figure(88, figsize=(9, 5.8), clear=True)
     f, (ax1, ax2, ax3) = plt.subplots(1, 3, num=88)
     ax1.imshow(strains[0], cmap=cmap, vmin=vmin, vmax=vmax)
     ax1.tick_params(
@@ -107,7 +134,7 @@ def plot_strains(strains, cmap="RdBu_r", vmin=None, vmax=None):
         labelbottom=False,
         labelleft=False,
     )
-    ax1.set_title(r"$\epsilon_{AA}$")
+    ax1.set_title(r"$\epsilon_{xx}$")
 
     ax2.imshow(strains[1], cmap=cmap, vmin=vmin, vmax=vmax)
     ax2.tick_params(
@@ -120,7 +147,7 @@ def plot_strains(strains, cmap="RdBu_r", vmin=None, vmax=None):
         labelbottom=False,
         labelleft=False,
     )
-    ax2.set_title(r"$\epsilon_{CC}$")
+    ax2.set_title(r"$\epsilon_{yy}$")
 
     im = ax3.imshow(strains[2], cmap=cmap, vmin=vmin, vmax=vmax)
     ax3.tick_params(
@@ -133,27 +160,11 @@ def plot_strains(strains, cmap="RdBu_r", vmin=None, vmax=None):
         labelbottom=False,
         labelleft=False,
     )
-    ax3.set_title(r"$\epsilon_{B}$")
+    ax3.set_title(r"$\epsilon_{xy}$")
 
     cbar_ax = f.add_axes([0.125, 0.25, 0.775, 0.05])
     f.colorbar(im, cax=cbar_ax, orientation="horizontal")
 
-    return
-
-
-def compare_coef_cube(dp, coefs, mask=None, power=0.3):
-    """
-    This function will compare the fit to individual diffraction patterns. It is essentially a helper function to quickly build the right object.
-
-    Accepts:
-        dp      - a 2D diffraction pattern
-        coefs   - coefs from coef_cube, corresponding to the diffraction pattern
-        power   - the power to which the comparison is taken
-    Returns:
-        None
-    """
-    dp = polar_elliptical_transform(dp, mask=mask)
-    dp.compare_coefs_two_sided_gaussian(coefs, power=power)
     return
 
 

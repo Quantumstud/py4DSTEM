@@ -26,9 +26,9 @@ import pyqtgraph as pg
 import gc
 
 from .dialogs import ControlPanel, PreprocessingWidget, SaveWidget, EditMetadataWidget
-from .utils import sibling_path, pg_point_roi, LQCollection
+from .gui_utils import sibling_path, pg_point_roi, LQCollection, datacube_selector
 from ..file.io.read import read
-from ..file.io.write import save_dataobject
+from ..file.io.native import save, is_py4DSTEM_file
 from ..file.datastructure.datacube import DataCube
 from .strain import *
 
@@ -58,13 +58,6 @@ class DataViewer(QtWidgets.QMainWindow):
         QtWidgets.QMainWindow.__init__(self)
         self.this_dir, self.this_filename = os.path.split(__file__)
 
-
-        QtWidgets.QMainWindow.__init__(self)
-        self.this_dir, self.this_filename = os.path.split(__file__)
-
-        QtWidgets.QMainWindow.__init__(self)
-        self.this_dir, self.this_filename = os.path.split(__file__)
-
         # Make settings collection
         self.settings = LQCollection()
 
@@ -77,7 +70,7 @@ class DataViewer(QtWidgets.QMainWindow):
         self.setup_diffraction_space_widget()
         self.setup_real_space_widget()
         self.setup_control_widget()
-        self.setup_console_widget()
+        #self.setup_console_widget()
         self.setup_main_window()
 
         # Set up temporary datacube
@@ -105,9 +98,9 @@ class DataViewer(QtWidgets.QMainWindow):
         self.control_widget.setWindowTitle("Control Panel")
 
         ############################ Controls ###############################
-        # For each control:                                                 #
+        # For each control:                                                 # 
         #   -creates items in self.settings                                 #
-        #   -connects UI changes to updates in self.settings                #
+        #   -connects UI changes to updates in self.settings                # 
         #   -connects updates in self.settings items to function calls      #
         #   -connects button clicks to function calls                       #
         #####################################################################
@@ -271,7 +264,7 @@ class DataViewer(QtWidgets.QMainWindow):
     # the process directory.                                         #
     # Additional functionality here should be avoided, to ensure     #
     # consistent output between processing run through the GUI       #
-    # or from the command line.                                      #
+    # or from the command line.                                      # 
     ##################################################################
 
     def launch_strain(self):
@@ -280,11 +273,6 @@ class DataViewer(QtWidgets.QMainWindow):
         self.strain_window.setup_tabs()
 
     ################ Load ################
-    def couldnt_find_file(self,fname):
-        msg = QtWidgets.QMessageBox()
-        msg.setText("Couldn't find filepath {0}".format(fname))
-        msg.setStandardButtons(QtWidgets.QMessageBox.Ok)
-        msg.exec_()
 
     def Unidentified_file(self,fname):
         msg = QtWidgets.QMessageBox()
@@ -297,12 +285,6 @@ class DataViewer(QtWidgets.QMainWindow):
         Loads a file by creating and storing a DataCube object.
         """
         fname = self.settings.data_filename.val
-
-        #Check that file exists
-        if not os.path.exists(fname):
-            self.couldnt_find_file(fname)
-            return
-
         print("Loading file",fname)
 
         # Instantiate DataCube object
@@ -312,16 +294,22 @@ class DataViewer(QtWidgets.QMainWindow):
         # load based on chosen mode:
         if self.control_widget.widget_LoadPreprocessSave.widget.loadRadioAuto.isChecked():
             #auto mode
-            self.datacube = read(fname)
-            if type(self.datacube) == str : 
+            if is_py4DSTEM_file(fname):
+                self.datacube = datacube_selector(fname)
+            else:
+                self.datacube,_ = read(fname)
+            if type(self.datacube) == str :
                 self.Unidentified_file(fname)
                 #Reset view
                 self.__init__(sys.argv)
                 return
         elif self.control_widget.widget_LoadPreprocessSave.widget.loadRadioMMAP.isChecked():
-            self.datacube = read(fname, load='dmmmap')
+            if is_py4DSTEM_file(fname):
+                self.datacube = datacube_selector(fname)
+            else:
+                self.datacube,_ = read(fname, mem="MEMMAP")
         elif self.control_widget.widget_LoadPreprocessSave.widget.loadRadioGatan.isChecked():
-            self.datacube = read(fname, load='gatan_bin')
+            self.datacube,_ = read(fname, ft='gatan_bin')
 
         # Update scan shape information
         self.settings.R_Nx.update_value(self.datacube.R_Nx)
@@ -578,7 +566,7 @@ class DataViewer(QtWidgets.QMainWindow):
     def execute_saveas(self):
         f = self.save_widget.lineEdit_SavePath.text()
         print("Saving file to {}".format(f))
-        save_dataobject(self.datacube,f)
+        save(f,self.datacube)
         self.save_widget.close()
 
     def save_directory(self):
@@ -749,7 +737,6 @@ class DataViewer(QtWidgets.QMainWindow):
         new_diffraction_space_view, success = self.datacube.get_diffraction_space_view(xc,yc)
         if success:
             self.diffraction_space_view = new_diffraction_space_view
-
             self.real_space_view_text.setText(f"[{xc},{yc}]")
 
             # rescale DP as selected (0 means raw, does no scaling)
@@ -882,3 +869,8 @@ class DataViewer(QtWidgets.QMainWindow):
 
 
 ################################ End of class ##################################
+
+
+
+
+
