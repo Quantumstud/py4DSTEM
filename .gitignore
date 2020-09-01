@@ -5,13 +5,18 @@
 *.ipynb_checkpoints*
 
 # Folders #
+.idea/
 __pycache__/
 *.egg-info/
+build/
+dist/
+py4DSTEM/sample_code/
+py4DSTEM/test/testdata/
 
 # Data Specific #
 #################
 *.png
-*.gif
+#*.gif
 *.emd
 *.emf
 *.dm3
